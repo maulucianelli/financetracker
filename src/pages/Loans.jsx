@@ -3,8 +3,20 @@ import { useFinance } from '../contexts/FinanceContext';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
+const originOptions = [
+  { value: 'store', label: 'Loja' },
+  { value: 'transport', label: 'Transportadora' },
+];
+
+const formatOriginLabel = (origin) => {
+  const value = typeof origin === 'string' ? origin.toLowerCase() : '';
+  if (value.startsWith('trans')) return 'Transportadora';
+  if (value.startsWith('shared')) return 'Compartilhado';
+  return 'Loja';
+};
+
 export default function Loans() {
-  const { data, addLoan, updateLoan, deleteLoan } = useFinance();
+  const { data, addLoan, updateLoan, deleteLoan, computeLoanMetrics } = useFinance();
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({
@@ -15,6 +27,8 @@ export default function Loans() {
     paidInstallments: 0,
     installmentValue: 0,
     nextDue: '',
+    interestRate: 0,
+    origin: 'store',
   });
 
   const resetForm = () => {
@@ -26,20 +40,22 @@ export default function Loans() {
       paidInstallments: 0,
       installmentValue: 0,
       nextDue: '',
+      interestRate: 0,
+      origin: 'store',
     });
     setEditingItem(null);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const balance = Number(formData.totalValue) - (Number(formData.paidInstallments) * Number(formData.installmentValue));
     const item = {
       ...formData,
       totalValue: Number(formData.totalValue),
       totalInstallments: Number(formData.totalInstallments),
       paidInstallments: Number(formData.paidInstallments),
       installmentValue: Number(formData.installmentValue),
-      balance: balance,
+      interestRate: Number(formData.interestRate),
+      origin: formData.origin,
     };
 
     if (editingItem) {
@@ -54,6 +70,7 @@ export default function Loans() {
 
   const handleEdit = (item) => {
     setEditingItem(item);
+    const originValue = typeof item.origin === 'string' && item.origin.toLowerCase().startsWith('trans') ? 'transport' : 'store';
     setFormData({
       bank: item.bank,
       loanType: item.loanType,
@@ -62,6 +79,8 @@ export default function Loans() {
       paidInstallments: item.paidInstallments,
       installmentValue: item.installmentValue,
       nextDue: item.nextDue,
+      interestRate: item.interestRate ?? 0,
+      origin: originValue,
     });
     setShowModal(true);
   };
@@ -72,8 +91,30 @@ export default function Loans() {
     }
   };
 
-  const totalBalance = data.loans.reduce((sum, loan) => sum + (loan.balance || 0), 0);
-  const totalMonthlyPayment = data.loans.reduce((sum, loan) => sum + (loan.installmentValue || 0), 0);
+  const loanSnapshots = (data.loans || []).map((loan) => computeLoanMetrics(loan));
+  const aggregates = loanSnapshots.reduce(
+    (acc, snapshot) => {
+      const balance = snapshot.balance || 0;
+      const monthlyInterest = snapshot.monthlyInterest || 0;
+      acc.totalBalance += balance;
+      acc.totalMonthlyInterest += monthlyInterest;
+      if (snapshot.origin === 'transport') {
+        acc.transportBalance += balance;
+        acc.transportInterest += monthlyInterest;
+      } else if (snapshot.origin === 'shared') {
+        acc.storeBalance += balance / 2;
+        acc.transportBalance += balance / 2;
+        acc.storeInterest += monthlyInterest / 2;
+        acc.transportInterest += monthlyInterest / 2;
+      } else {
+        acc.storeBalance += balance;
+        acc.storeInterest += monthlyInterest;
+      }
+      return acc;
+    },
+    { totalBalance: 0, totalMonthlyInterest: 0, storeBalance: 0, transportBalance: 0, storeInterest: 0, transportInterest: 0 }
+  );
+  const totalMonthlyPayment = (data.loans || []).reduce((sum, loan) => sum + (Number(loan.installmentValue) || 0), 0);
 
   return (
     <div>
@@ -88,11 +129,11 @@ export default function Loans() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Saldo Devedor Total</h3>
           <p className="text-2xl font-bold text-red-600">
-            R$ {totalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            R$ {aggregates.totalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
@@ -102,8 +143,35 @@ export default function Loans() {
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500">Juros Mensais Estimados</h3>
+          <p className="text-2xl font-bold text-purple-600">
+            R$ {aggregates.totalMonthlyInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Empréstimos Ativos</h3>
           <p className="text-2xl font-bold text-gray-900">{data.loans.length}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500">Loja</h3>
+          <p className="text-2xl font-bold text-blue-600">
+            R$ {aggregates.storeBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Juros mês: R$ {aggregates.storeInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500">Transportadora</h3>
+          <p className="text-2xl font-bold text-emerald-600">
+            R$ {aggregates.transportBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Juros mês: R$ {aggregates.transportInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
         </div>
       </div>
 
@@ -113,27 +181,39 @@ export default function Loans() {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Banco</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Origem</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor Total</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Parcelas</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor Parcela</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo Devedor</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Juros Mensais</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taxa de Juros (%)</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Próximo Venc.</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {data.loans.map((item) => {
-              const progress = (item.paidInstallments / item.totalInstallments) * 100;
+              const metrics = computeLoanMetrics(item);
+              const totalInstallments = Number(item.totalInstallments) || 0;
+              const paidInstallments = Number(item.paidInstallments) || 0;
+              const progress = totalInstallments > 0 ? (paidInstallments / totalInstallments) * 100 : 0;
+              const interestRate = Number(item.interestRate) || 0;
               return (
                 <tr key={item.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.bank}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.loanType}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`px-2 py-1 text-xs font-semibold rounded ${metrics.origin === 'transport' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                      {formatOriginLabel(metrics.origin)}
+                    </span>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    R$ {item.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {Number(item.totalValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <div className="flex items-center">
-                      <span className="mr-2">{item.paidInstallments}/{item.totalInstallments}</span>
+                      <span className="mr-2">{paidInstallments}/{totalInstallments}</span>
                       <div className="w-16 bg-gray-200 rounded-full h-2">
                         <div
                           className="bg-blue-600 h-2 rounded-full"
@@ -143,13 +223,19 @@ export default function Loans() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    R$ {item.installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {Number(item.installmentValue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-red-600">
-                    R$ {item.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {metrics.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.nextDue && format(parseISO(item.nextDue), 'dd/MM/yyyy')}
+                    R$ {metrics.monthlyInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {interestRate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {item.nextDue ? format(parseISO(item.nextDue), 'dd/MM/yyyy') : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
@@ -210,6 +296,21 @@ export default function Loans() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Origem</label>
+                  <select
+                    value={formData.origin}
+                    onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {originOptions.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Valor Total (R$)</label>
                   <input
                     type="number"
@@ -229,6 +330,18 @@ export default function Loans() {
                     required
                     value={formData.installmentValue}
                     onChange={(e) => setFormData({ ...formData, installmentValue: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Taxa de Juros Mensal (%)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.interestRate}
+                    onChange={(e) => setFormData({ ...formData, interestRate: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>

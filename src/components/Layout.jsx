@@ -38,15 +38,6 @@ const menuSections = [
       { path: '/settings', icon: SettingsIcon, label: 'Configurações' },
     ],
   },
-  {
-    title: 'Histórico (Legado)',
-    items: [
-      { path: '/monthly-resume', icon: Calendar, label: 'Resumo Mensal' },
-      { path: '/transport-costs', icon: Truck, label: 'Custos Transportadora' },
-      { path: '/store-costs', icon: Store, label: 'Custos Loja' },
-      { path: '/consolidated', icon: BarChart3, label: 'Relatório Consolidado' },
-    ],
-  },
 ];
 
 export default function Layout({ children }) {

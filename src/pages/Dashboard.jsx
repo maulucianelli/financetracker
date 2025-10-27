@@ -19,7 +19,7 @@ import { TrendingUp, TrendingDown, DollarSign, AlertCircle, Banknote } from 'luc
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function Dashboard() {
-  const { data, calculateDRE, calculateCashFlow } = useFinance();
+  const { data, calculateDRE, calculateCashFlow, computeLoanMetrics } = useFinance();
 
   // Calculate metrics using correct accounting
   const dre = calculateDRE() || {
@@ -38,6 +38,11 @@ export default function Dashboard() {
     totalOpExpensesWithoutCheques: 0,
     totalInterest: 0,
     chequeExpenses: 0,
+    storeInterest: 0,
+    transportInterest: 0,
+    storeChequeExpenses: 0,
+    transportChequeExpenses: 0,
+    sharedChequeExpenses: 0,
   };
 
   const cashFlow = calculateCashFlow() || {
@@ -54,7 +59,11 @@ export default function Dashboard() {
     .filter(acc => !acc.paid)
     .reduce((sum, acc) => sum + (acc.value || 0), 0);
 
-  const totalLoans = (data.loans || []).reduce((sum, loan) => sum + (loan.balance || 0), 0);
+  const loans = data.loans || [];
+  const loanSnapshots = loans.map((loan) => computeLoanMetrics(loan));
+  const totalLoans = loanSnapshots.reduce((sum, loan) => sum + (loan.balance || 0), 0);
+  const totalLoanInterest = loanSnapshots.reduce((sum, loan) => sum + (loan.monthlyInterest || 0), 0);
+  const loanCount = loans.length;
   const operationalWithoutCheques = Math.max(
     (dre.totalOpExpensesWithoutCheques ?? (dre.totalOpExpenses - dre.chequeExpenses)),
     0
@@ -208,7 +217,10 @@ export default function Dashboard() {
           <p className="text-3xl font-bold text-orange-600">
             R$ {totalLoans.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
-          <p className="text-sm text-gray-500 mt-2">{(data.loans || []).length} empréstimos</p>
+          <p className="text-sm text-gray-500 mt-2">{loanCount} empréstimo(s)</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Juros estimados no mês: R$ {totalLoanInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">

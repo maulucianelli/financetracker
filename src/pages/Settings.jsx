@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
-import { AlertTriangle, Download, Upload, Trash2 } from 'lucide-react';
+import { AlertTriangle, Download, Upload, Trash2, ShieldCheck, ShieldOff, Loader2 } from 'lucide-react';
 
 export default function Settings() {
-  const { data, updateCostAllocation } = useFinance();
+  const { data, updateCostAllocation, storagePersistence, requestStoragePersistence } = useFinance();
   const [allocation, setAllocation] = useState(data.settings?.costAllocation || { store: 50, transport: 50 });
+  const persistenceStatus = storagePersistence || { supported: false, persisted: false, checking: false, error: null };
 
   const handleAllocationChange = (store) => {
     const transport = 100 - store;
@@ -48,6 +49,51 @@ export default function Settings() {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleRequestPersistence = async () => {
+    await requestStoragePersistence();
+  };
+
+  const renderPersistenceStatus = () => {
+    if (!persistenceStatus.supported) {
+      return (
+        <span className="inline-flex items-center text-sm text-gray-500">
+          <ShieldOff className="h-4 w-4 mr-2 text-gray-400" />
+          Persistência automática não suportada neste navegador.
+        </span>
+      );
+    }
+    if (persistenceStatus.checking) {
+      return (
+        <span className="inline-flex items-center text-sm text-blue-600">
+          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          Verificando permissões de armazenamento...
+        </span>
+      );
+    }
+    if (persistenceStatus.persisted) {
+      return (
+        <span className="inline-flex items-center text-sm text-green-600">
+          <ShieldCheck className="h-4 w-4 mr-2" />
+          Armazenamento protegido contra limpeza automática.
+        </span>
+      );
+    }
+    if (persistenceStatus.error) {
+      return (
+        <span className="inline-flex items-center text-sm text-red-600">
+          <AlertTriangle className="h-4 w-4 mr-2" />
+          Não foi possível garantir persistência automática.
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center text-sm text-orange-600">
+        <ShieldOff className="h-4 w-4 mr-2" />
+        Este navegador pode limpar os dados automaticamente.
+      </span>
+    );
   };
 
   return (
@@ -94,6 +140,31 @@ export default function Settings() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Gerenciamento de Dados</h2>
 
         <div className="space-y-4">
+          {/* Persistence */}
+          <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+            <div className="pr-4">
+              <h3 className="font-medium text-gray-900">Persistência Automática</h3>
+              <p className="text-sm text-gray-600">
+                Solicita ao navegador que mantenha os dados mesmo após limpeza automática de cache.
+              </p>
+              <div className="mt-2">
+                {renderPersistenceStatus()}
+              </div>
+            </div>
+            <button
+              onClick={handleRequestPersistence}
+              disabled={!persistenceStatus.supported || persistenceStatus.checking || persistenceStatus.persisted}
+              className={`px-4 py-2 rounded-lg flex items-center ${
+                persistenceStatus.persisted
+                  ? 'bg-green-100 text-green-700 cursor-default'
+                  : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
+              }`}
+            >
+              <ShieldCheck className="h-4 w-4 mr-2" />
+              {persistenceStatus.persisted ? 'Ativado' : 'Garantir Persistência'}
+            </button>
+          </div>
+
           {/* Export */}
           <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
             <div>

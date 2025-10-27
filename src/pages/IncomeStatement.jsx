@@ -12,6 +12,12 @@ export default function IncomeStatement() {
     (dre?.totalOpExpensesWithoutCheques ?? ((dre?.totalOpExpenses || 0) - chequeExpenses)),
     0
   );
+  const storeChequeExpenses = dre?.storeChequeExpenses || 0;
+  const transportChequeExpenses = dre?.transportChequeExpenses || 0;
+  const storeInterest = dre?.storeInterest || 0;
+  const transportInterest = dre?.transportInterest || 0;
+  const storeOperationalBase = Math.max((dre?.storeOpExpenses || 0) - storeChequeExpenses, 0);
+  const transportOperationalBase = Math.max((dre?.transportOpExpenses || 0) - transportChequeExpenses, 0);
 
   const MetricRow = ({ label, value, bold = false, indent = 0, color = 'text-gray-900', isSubtotal = false }) => (
     <tr className={`${isSubtotal ? 'border-t-2 border-gray-300' : ''}`}>
@@ -194,14 +200,15 @@ export default function IncomeStatement() {
                 bold
                 color={dre.storeGrossProfit >= 0 ? 'text-green-600' : 'text-red-600'}
               />
-              <MetricRow label="(-) Despesas Operacionais" value={dre.storeOpExpenses} color="text-red-600" />
+              <MetricRow label="(-) Despesas Operacionais" value={storeOperationalBase} color="text-red-600" />
+            <MetricRow label="(-) Cheques" value={storeChequeExpenses} indent={1} color="text-red-600" />
               <MetricRow
                 label="= Lucro Operacional"
                 value={dre.storeOperatingProfit}
                 bold
                 color={dre.storeOperatingProfit >= 0 ? 'text-green-600' : 'text-red-600'}
               />
-              <MetricRow label="(-) Juros" value={dre.totalInterest / 2} color="text-red-600" />
+              <MetricRow label="(-) Juros" value={storeInterest} color="text-red-600" />
               <MetricRow
                 label="= Lucro Líquido"
                 value={dre.storeNetProfit}
@@ -227,14 +234,15 @@ export default function IncomeStatement() {
                 bold
                 color={dre.transportGrossProfit >= 0 ? 'text-green-600' : 'text-red-600'}
               />
-              <MetricRow label="(-) Despesas Operacionais" value={dre.transportOpExpenses} color="text-red-600" />
+              <MetricRow label="(-) Despesas Operacionais" value={transportOperationalBase} color="text-red-600" />
+              <MetricRow label="(-) Cheques" value={transportChequeExpenses} indent={1} color="text-red-600" />
               <MetricRow
                 label="= Lucro Operacional"
                 value={dre.transportOperatingProfit}
                 bold
                 color={dre.transportOperatingProfit >= 0 ? 'text-green-600' : 'text-red-600'}
               />
-              <MetricRow label="(-) Juros" value={dre.totalInterest / 2} color="text-red-600" />
+              <MetricRow label="(-) Juros" value={transportInterest} color="text-red-600" />
               <MetricRow
                 label="= Lucro Líquido"
                 value={dre.transportNetProfit}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
-import { Plus, Pencil, Trash2, X, CheckCircle, Clock } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, CheckCircle, Clock, Check, Circle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 const statusOptions = [
@@ -8,10 +8,29 @@ const statusOptions = [
   { value: 'compensado', label: 'Compensado' },
 ];
 
-const statusStyles = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  compensado: 'bg-green-100 text-green-800',
+const bankOptions = [
+  { value: 'bradesco', label: 'Bradesco' },
+  { value: 'caixa', label: 'Caixa' },
+];
+
+const originOptions = [
+  { value: 'store', label: 'Loja' },
+  { value: 'transport', label: 'Transportadora' },
+];
+
+const bankLabels = {
+  bradesco: 'Bradesco',
+  caixa: 'Caixa',
 };
+
+const originLabels = {
+  store: 'Loja',
+  transport: 'Transportadora',
+};
+
+const normalizeKey = (value) => (typeof value === 'string' ? value.toLowerCase() : value);
+const getBankLabel = (bank) => bankLabels[bank] || bankLabels[normalizeKey(bank)] || (bank || '-');
+const getOriginLabel = (origin) => originLabels[origin] || originLabels[normalizeKey(origin)] || (origin || '-');
 
 export default function Cheques() {
   const { data, addCheque, updateCheque, deleteCheque } = useFinance();
@@ -24,6 +43,8 @@ export default function Cheques() {
     clearingDate: '',
     value: 0,
     status: 'pending',
+    bank: 'bradesco',
+    origin: 'store',
     notes: '',
   });
 
@@ -37,6 +58,10 @@ export default function Cheques() {
       pendingCount: 0,
       compensatedCount: 0,
       nextClearing: null,
+      storeValue: 0,
+      transportValue: 0,
+      bradescoValue: 0,
+      caixaValue: 0,
     };
 
     return cheques.reduce((acc, cheque) => {
@@ -57,6 +82,21 @@ export default function Cheques() {
         }
       }
 
+      if (cheque.origin === 'transport') {
+        acc.transportValue += value;
+      } else if (cheque.origin === 'shared') {
+        acc.storeValue += value / 2;
+        acc.transportValue += value / 2;
+      } else {
+        acc.storeValue += value;
+      }
+
+      if (cheque.bank === 'caixa' || cheque.bank === 'Caixa') {
+        acc.caixaValue += value;
+      } else {
+        acc.bradescoValue += value;
+      }
+
       return acc;
     }, base);
   }, [cheques]);
@@ -69,6 +109,8 @@ export default function Cheques() {
       clearingDate: '',
       value: 0,
       status: 'pending',
+      bank: 'bradesco',
+      origin: 'store',
       notes: '',
     });
     setEditingItem(null);
@@ -94,6 +136,9 @@ export default function Cheques() {
 
   const handleEdit = (item) => {
     setEditingItem(item);
+    const originValue = typeof item.origin === 'string' && item.origin.toLowerCase().startsWith('trans')
+      ? 'transport'
+      : 'store';
     setFormData({
       payee: item.payee || '',
       serialNumber: item.serialNumber || '',
@@ -101,6 +146,8 @@ export default function Cheques() {
       clearingDate: item.clearingDate || '',
       value: item.value || 0,
       status: item.status || 'pending',
+      bank: item.bank || 'bradesco',
+      origin: originValue,
       notes: item.notes || '',
     });
     setShowModal(true);
@@ -110,6 +157,11 @@ export default function Cheques() {
     if (confirm('Tem certeza que deseja excluir este cheque?')) {
       deleteCheque(id);
     }
+  };
+
+  const toggleStatus = (cheque) => {
+    const nextStatus = cheque.status === 'compensado' ? 'pending' : 'compensado';
+    updateCheque(cheque.id, { ...cheque, status: nextStatus });
   };
 
   return (
@@ -171,6 +223,42 @@ export default function Cheques() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-500 flex items-center">
+            <span className="inline-flex h-2 w-2 rounded-full bg-blue-500 mr-2" />
+            Total Loja
+          </p>
+          <p className="text-2xl font-bold text-blue-600">
+            R$ {summary.storeValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-500 flex items-center">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 mr-2" />
+            Total Transportadora
+          </p>
+          <p className="text-2xl font-bold text-emerald-600">
+            R$ {summary.transportValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-500">Bradesco</p>
+          <p className="text-2xl font-bold text-indigo-600">
+            R$ {summary.bradescoValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <p className="text-sm font-medium text-gray-500">Caixa</p>
+          <p className="text-2xl font-bold text-purple-600">
+            R$ {summary.caixaValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+      </div>
+
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -180,6 +268,8 @@ export default function Cheques() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Destinatário</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nº Série</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Banco</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Origem</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
             </tr>
@@ -198,10 +288,30 @@ export default function Cheques() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                   R$ {(Number(item.value) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {getBankLabel(item.bank)}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs font-semibold rounded ${statusStyles[item.status] || 'bg-gray-100 text-gray-800'}`}>
-                    {statusOptions.find(option => option.value === item.status)?.label || item.status}
+                  <span className={`px-2 py-1 text-xs font-semibold rounded ${item.origin === 'transport' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                    {getOriginLabel(item.origin)}
                   </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <button
+                    onClick={() => toggleStatus(item)}
+                    className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded transition-colors ${
+                      item.status === 'compensado'
+                        ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                        : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                    }`}
+                  >
+                    {item.status === 'compensado' ? (
+                      <Check className="h-3 w-3 mr-1" />
+                    ) : (
+                      <Circle className="h-3 w-3 mr-1" />
+                    )}
+                    {statusOptions.find(option => option.value === item.status)?.label || item.status}
+                  </button>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
@@ -257,6 +367,36 @@ export default function Cheques() {
                     onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Banco</label>
+                  <select
+                    value={formData.bank}
+                    onChange={(e) => setFormData({ ...formData, bank: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {bankOptions.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Origem</label>
+                  <select
+                    value={formData.origin}
+                    onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {originOptions.map(option => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

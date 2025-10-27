@@ -29,7 +29,7 @@ const initialData = {
   loans: [],
 
   // Cheques
-  cheques: [], // { payee, serialNumber, issueDate, clearingDate, value, status: 'pending' | 'compensado', notes }
+  cheques: [], // { payee, serialNumber, issueDate, clearingDate, value, status, bank, origin, notes }
 
   // Configurações
   settings: {
@@ -47,6 +47,93 @@ const initialData = {
 };
 
 export const FinanceProvider = ({ children }) => {
+  const storageSupported = typeof navigator !== 'undefined' && !!navigator.storage?.persist;
+  const normalizeOrigin = (origin) => {
+    if (!origin) return 'store';
+    const lower = origin.toString().toLowerCase();
+    if (lower.startsWith('trans')) return 'transport';
+    if (lower.startsWith('shared') || lower.startsWith('compart')) return 'shared';
+    return 'store';
+  };
+
+  const normalizeBank = (bank) => {
+    if (!bank) return 'bradesco';
+    const lower = bank.toString().toLowerCase();
+    if (lower.includes('caix')) return 'caixa';
+    if (lower.includes('brad')) return 'bradesco';
+    return bank;
+  };
+
+  const sanitizeChequePayload = (cheque) => {
+    const value = Number(cheque.value) || 0;
+    return {
+      ...cheque,
+      value,
+      bank: normalizeBank(cheque.bank),
+      origin: normalizeOrigin(cheque.origin),
+      status: cheque.status === 'compensado' ? 'compensado' : 'pending',
+    };
+  };
+
+  const deriveLoanValues = (loan) => {
+    const totalValue = Number(loan.totalValue) || 0;
+    const totalInstallmentsRaw = Number(loan.totalInstallments);
+    const totalInstallments = totalInstallmentsRaw > 0 ? Math.floor(totalInstallmentsRaw) : 1;
+    const paidInstallmentsRaw = Number(loan.paidInstallments);
+    const paidInstallments = Math.min(Math.max(paidInstallmentsRaw || 0, 0), totalInstallments);
+    const interestRate = Number(loan.interestRate) || 0;
+    const origin = normalizeOrigin(loan.origin);
+    const principalPerInstallment = totalValue / totalInstallments;
+    const principalPaid = principalPerInstallment * paidInstallments;
+    const balance = Math.max(totalValue - principalPaid, 0);
+    const installmentValueInput = Number(loan.installmentValue) || 0;
+    const suggestedInstallment = principalPerInstallment + (balance * (interestRate / 100));
+    const installmentValue = installmentValueInput > 0 ? installmentValueInput : suggestedInstallment;
+    const monthlyInterest = balance * (interestRate / 100);
+    return {
+      totalValue,
+      totalInstallments,
+      paidInstallments,
+      interestRate,
+      origin,
+      balance,
+      installmentValue,
+      monthlyInterest,
+      principalPerInstallment,
+    };
+  };
+
+  const sanitizeLoanPayload = (loan) => {
+    const derived = deriveLoanValues(loan);
+    return {
+      ...loan,
+      totalValue: derived.totalValue,
+      totalInstallments: derived.totalInstallments,
+      paidInstallments: derived.paidInstallments,
+      interestRate: derived.interestRate,
+      origin: derived.origin,
+      balance: derived.balance,
+      installmentValue: derived.installmentValue,
+    };
+  };
+
+  const computeLoanMetrics = (loan) => {
+    const derived = deriveLoanValues(loan);
+    return {
+      balance: derived.balance,
+      monthlyInterest: derived.monthlyInterest,
+      origin: derived.origin,
+      interestRate: derived.interestRate,
+    };
+  };
+
+  const [persistenceState, setPersistenceState] = useState({
+    supported: storageSupported,
+    persisted: null,
+    checking: !!storageSupported,
+    error: null,
+  });
+
   const [data, setData] = useState(() => {
     const saved = localStorage.getItem('financeData');
     if (saved) {
@@ -60,7 +147,8 @@ export const FinanceProvider = ({ children }) => {
         operationalExpenses: parsedData.operationalExpenses || [],
         accountsReceivable: parsedData.accountsReceivable || [],
         settings: parsedData.settings || initialData.settings,
-        cheques: parsedData.cheques || [],
+        cheques: (parsedData.cheques || []).map(sanitizeChequePayload),
+        loans: (parsedData.loans || []).map(sanitizeLoanPayload),
       };
     }
     return initialData;
@@ -69,6 +157,55 @@ export const FinanceProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem('financeData', JSON.stringify(data));
   }, [data]);
+
+  useEffect(() => {
+    if (!storageSupported) {
+      setPersistenceState(prev => ({ ...prev, supported: false, checking: false }));
+      return;
+    }
+
+    let cancelled = false;
+
+    const ensurePersistence = async () => {
+      try {
+        const persisted = await navigator.storage.persisted();
+        if (!cancelled) {
+          setPersistenceState(prev => ({ ...prev, persisted, checking: false, error: null }));
+        }
+        if (!persisted) {
+          const granted = await navigator.storage.persist();
+          const persistedAfter = granted ? await navigator.storage.persisted() : false;
+          if (!cancelled) {
+            setPersistenceState(prev => ({ ...prev, persisted: persistedAfter, checking: false, error: null }));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPersistenceState(prev => ({ ...prev, checking: false, error }));
+        }
+      }
+    };
+
+    ensurePersistence();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageSupported]);
+
+  const requestPersistence = async () => {
+    if (!storageSupported) return false;
+    try {
+      setPersistenceState(prev => ({ ...prev, checking: true, error: null }));
+      const granted = await navigator.storage.persist();
+      const persisted = await navigator.storage.persisted();
+      setPersistenceState(prev => ({ ...prev, persisted, checking: false }));
+      return granted && persisted;
+    } catch (error) {
+      setPersistenceState(prev => ({ ...prev, checking: false, error }));
+      return false;
+    }
+  };
 
   // Monthly Resume
   const addMonthlyResume = (item) => {
@@ -168,17 +305,19 @@ export const FinanceProvider = ({ children }) => {
 
   // Loans
   const addLoan = (item) => {
+    const normalized = sanitizeLoanPayload(item);
     setData(prev => ({
       ...prev,
-      loans: [...prev.loans, { ...item, id: Date.now() }]
+      loans: [...prev.loans, { ...normalized, id: Date.now() }]
     }));
   };
 
   const updateLoan = (id, updatedItem) => {
+    const normalized = sanitizeLoanPayload(updatedItem);
     setData(prev => ({
       ...prev,
       loans: prev.loans.map(item =>
-        item.id === id ? { ...item, ...updatedItem } : item
+        item.id === id ? { ...item, ...normalized } : item
       )
     }));
   };
@@ -192,17 +331,19 @@ export const FinanceProvider = ({ children }) => {
 
   // Cheques
   const addCheque = (item) => {
+    const normalized = sanitizeChequePayload(item);
     setData(prev => ({
       ...prev,
-      cheques: [...prev.cheques, { ...item, value: Number(item.value) || 0, id: Date.now() }]
+      cheques: [...prev.cheques, { ...normalized, id: Date.now() }]
     }));
   };
 
   const updateCheque = (id, updatedItem) => {
+    const normalized = sanitizeChequePayload(updatedItem);
     setData(prev => ({
       ...prev,
       cheques: prev.cheques.map(item =>
-        item.id === id ? { ...item, ...updatedItem, value: Number(updatedItem.value) || 0 } : item
+        item.id === id ? { ...item, ...normalized } : item
       )
     }));
   };
@@ -368,17 +509,37 @@ export const FinanceProvider = ({ children }) => {
       .filter(e => e.origin === 'shared')
       .reduce((sum, e) => sum + (e.value || 0), 0);
 
-    const chequeExpenses = cheques.reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
-    const totalSharedExpenses = sharedOperationalExpenses + chequeExpenses;
+    const chequeTotals = cheques.reduce((acc, cheque) => {
+      const value = Number(cheque.value) || 0;
+      if (value === 0) {
+        return acc;
+      }
+      const origin = normalizeOrigin(cheque.origin);
+      if (origin === 'transport') {
+        acc.transport += value;
+      } else if (origin === 'shared') {
+        acc.shared += value;
+      } else {
+        acc.store += value;
+      }
+      return acc;
+    }, { store: 0, transport: 0, shared: 0 });
+
+    const totalChequeExpenses = chequeTotals.store + chequeTotals.transport + chequeTotals.shared;
+    const sharedChequeExpenses = chequeTotals.shared;
+    const totalSharedExpenses = sharedOperationalExpenses + sharedChequeExpenses;
 
     // Ratear custos compartilhados
     const storeSharedExpenses = totalSharedExpenses * (allocation.store / 100);
     const transportSharedExpenses = totalSharedExpenses * (allocation.transport / 100);
 
-    const storeTotalOpExpenses = storeOpExpenses + storeSharedExpenses;
-    const transportTotalOpExpenses = transportOpExpenses + transportSharedExpenses;
+    const storeChequeExpenses = chequeTotals.store + (sharedChequeExpenses * (allocation.store / 100));
+    const transportChequeExpenses = chequeTotals.transport + (sharedChequeExpenses * (allocation.transport / 100));
+
+    const storeTotalOpExpenses = storeOpExpenses + storeSharedExpenses + chequeTotals.store;
+    const transportTotalOpExpenses = transportOpExpenses + transportSharedExpenses + chequeTotals.transport;
     const totalOpExpenses = storeTotalOpExpenses + transportTotalOpExpenses;
-    const totalOpExpensesWithoutCheques = totalOpExpenses - chequeExpenses;
+    const totalOpExpensesWithoutCheques = Math.max(totalOpExpenses - totalChequeExpenses, 0);
 
     // LUCRO OPERACIONAL (EBITDA aproximado)
     const storeOperatingProfit = storeGrossProfit - storeTotalOpExpenses;
@@ -387,15 +548,29 @@ export const FinanceProvider = ({ children }) => {
     const operatingMargin = totalRevenue > 0 ? (totalOperatingProfit / totalRevenue) * 100 : 0;
 
     // DESPESAS FINANCEIRAS (Juros de empréstimos)
-    const totalInterest = loans.reduce((sum, loan) => {
-      // Calcular juros mensais aproximados
-      const monthlyInterest = (loan.installmentValue || 0) - ((loan.totalValue || 0) / (loan.totalInstallments || 1));
-      return sum + (monthlyInterest > 0 ? monthlyInterest : 0);
-    }, 0);
+    const loanInterest = (loans || []).reduce((acc, loan) => {
+      const { monthlyInterest, origin } = computeLoanMetrics(loan);
+      const value = monthlyInterest || 0;
+      acc.total += value;
+      if (origin === 'transport') {
+        acc.transport += value;
+      } else if (origin === 'shared') {
+        const split = value / 2;
+        acc.store += split;
+        acc.transport += split;
+      } else {
+        acc.store += value;
+      }
+      return acc;
+    }, { total: 0, store: 0, transport: 0 });
+
+    const totalInterest = loanInterest.total;
 
     // LUCRO LÍQUIDO
     const netProfit = totalOperatingProfit - totalInterest;
     const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    const storeNetProfit = storeOperatingProfit - loanInterest.store;
+    const transportNetProfit = transportOperatingProfit - loanInterest.transport;
 
     return {
       // Receitas
@@ -429,13 +604,18 @@ export const FinanceProvider = ({ children }) => {
 
       // Despesas Financeiras
       totalInterest,
+      storeInterest: loanInterest.store,
+      transportInterest: loanInterest.transport,
 
       // Lucro Líquido
-      storeNetProfit: storeOperatingProfit - (totalInterest / 2), // Ratear juros
-      transportNetProfit: transportOperatingProfit - (totalInterest / 2),
+      storeNetProfit,
+      transportNetProfit,
       totalNetProfit: netProfit,
       netMargin,
-      chequeExpenses,
+      chequeExpenses: totalChequeExpenses,
+      storeChequeExpenses,
+      transportChequeExpenses,
+      sharedChequeExpenses,
     };
   };
 
@@ -501,6 +681,7 @@ export const FinanceProvider = ({ children }) => {
     // Cálculos
     calculateDRE,
     calculateCashFlow,
+    computeLoanMetrics,
     // Revenues
     addRevenue,
     updateRevenue,
@@ -544,6 +725,9 @@ export const FinanceProvider = ({ children }) => {
     addCheque,
     updateCheque,
     deleteCheque,
+    // Storage
+    storagePersistence: persistenceState,
+    requestStoragePersistence: requestPersistence,
   };
 
   return (
