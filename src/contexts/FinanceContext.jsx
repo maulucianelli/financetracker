@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 
 const FinanceContext = createContext();
@@ -26,6 +27,9 @@ const initialData = {
 
   // Empréstimos
   loans: [],
+
+  // Cheques
+  cheques: [], // { payee, serialNumber, issueDate, clearingDate, value, status: 'pending' | 'compensado', notes }
 
   // Configurações
   settings: {
@@ -56,6 +60,7 @@ export const FinanceProvider = ({ children }) => {
         operationalExpenses: parsedData.operationalExpenses || [],
         accountsReceivable: parsedData.accountsReceivable || [],
         settings: parsedData.settings || initialData.settings,
+        cheques: parsedData.cheques || [],
       };
     }
     return initialData;
@@ -185,6 +190,30 @@ export const FinanceProvider = ({ children }) => {
     }));
   };
 
+  // Cheques
+  const addCheque = (item) => {
+    setData(prev => ({
+      ...prev,
+      cheques: [...prev.cheques, { ...item, value: Number(item.value) || 0, id: Date.now() }]
+    }));
+  };
+
+  const updateCheque = (id, updatedItem) => {
+    setData(prev => ({
+      ...prev,
+      cheques: prev.cheques.map(item =>
+        item.id === id ? { ...item, ...updatedItem, value: Number(updatedItem.value) || 0 } : item
+      )
+    }));
+  };
+
+  const deleteCheque = (id) => {
+    setData(prev => ({
+      ...prev,
+      cheques: prev.cheques.filter(item => item.id !== id)
+    }));
+  };
+
   // Revenues
   const addRevenue = (item) => {
     setData(prev => ({
@@ -306,6 +335,14 @@ export const FinanceProvider = ({ children }) => {
     const directCosts = filterByPeriod(data.directCosts || [], startDate, endDate);
     const opExpenses = filterByPeriod(data.operationalExpenses || [], startDate, endDate);
     const loans = data.loans || [];
+    const cheques = filterByPeriod(
+      (data.cheques || []).map(cheque => ({
+        ...cheque,
+        date: cheque.issueDate || cheque.clearingDate || null
+      })),
+      startDate,
+      endDate
+    );
 
     const allocation = data.settings?.costAllocation || { store: 50, transport: 50 };
 
@@ -327,15 +364,21 @@ export const FinanceProvider = ({ children }) => {
     // DESPESAS OPERACIONAIS (Fixas)
     const storeOpExpenses = opExpenses.filter(e => e.origin === 'store').reduce((sum, e) => sum + (e.value || 0), 0);
     const transportOpExpenses = opExpenses.filter(e => e.origin === 'transport').reduce((sum, e) => sum + (e.value || 0), 0);
-    const sharedExpenses = opExpenses.filter(e => e.origin === 'shared').reduce((sum, e) => sum + (e.value || 0), 0);
+    const sharedOperationalExpenses = opExpenses
+      .filter(e => e.origin === 'shared')
+      .reduce((sum, e) => sum + (e.value || 0), 0);
+
+    const chequeExpenses = cheques.reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
+    const totalSharedExpenses = sharedOperationalExpenses + chequeExpenses;
 
     // Ratear custos compartilhados
-    const storeSharedExpenses = sharedExpenses * (allocation.store / 100);
-    const transportSharedExpenses = sharedExpenses * (allocation.transport / 100);
+    const storeSharedExpenses = totalSharedExpenses * (allocation.store / 100);
+    const transportSharedExpenses = totalSharedExpenses * (allocation.transport / 100);
 
     const storeTotalOpExpenses = storeOpExpenses + storeSharedExpenses;
     const transportTotalOpExpenses = transportOpExpenses + transportSharedExpenses;
     const totalOpExpenses = storeTotalOpExpenses + transportTotalOpExpenses;
+    const totalOpExpensesWithoutCheques = totalOpExpenses - chequeExpenses;
 
     // LUCRO OPERACIONAL (EBITDA aproximado)
     const storeOperatingProfit = storeGrossProfit - storeTotalOpExpenses;
@@ -374,8 +417,9 @@ export const FinanceProvider = ({ children }) => {
       // Despesas Operacionais
       storeOpExpenses: storeTotalOpExpenses,
       transportOpExpenses: transportTotalOpExpenses,
-      sharedExpenses,
+      sharedExpenses: sharedOperationalExpenses,
       totalOpExpenses,
+      totalOpExpensesWithoutCheques,
 
       // Lucro Operacional
       storeOperatingProfit,
@@ -391,6 +435,7 @@ export const FinanceProvider = ({ children }) => {
       transportNetProfit: transportOperatingProfit - (totalInterest / 2),
       totalNetProfit: netProfit,
       netMargin,
+      chequeExpenses,
     };
   };
 
@@ -408,11 +453,28 @@ export const FinanceProvider = ({ children }) => {
       return sum + (loan.installmentValue || 0);
     }, 0);
 
+    const clearedCheques = (data.cheques || [])
+      .filter(cheque => cheque.status === 'compensado');
+    const clearedChequesInPeriod = filterByPeriod(
+      clearedCheques.map(cheque => ({
+        ...cheque,
+        date: cheque.clearingDate || cheque.issueDate || null
+      })),
+      startDate,
+      endDate
+    );
+    const chequeOutflow = clearedChequesInPeriod.reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
+    const pendingChequesValue = (data.cheques || [])
+      .filter(cheque => cheque.status !== 'compensado')
+      .reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
+    const pendingChequesCount = (data.cheques || [])
+      .filter(cheque => cheque.status !== 'compensado').length;
+
     // Entradas de Caixa
     const cashInflows = receivedReceivables.reduce((sum, acc) => sum + (acc.value || 0), 0);
 
     // Saídas de Caixa
-    const cashOutflows = paidPayables.reduce((sum, acc) => sum + (acc.value || 0), 0) + loanPayments;
+    const cashOutflows = paidPayables.reduce((sum, acc) => sum + (acc.value || 0), 0) + loanPayments + chequeOutflow;
 
     // Saldo de Caixa
     const netCashFlow = cashInflows - cashOutflows;
@@ -428,6 +490,9 @@ export const FinanceProvider = ({ children }) => {
       pendingReceivables: (data.accountsReceivable || [])
         .filter(acc => !acc.received)
         .reduce((sum, acc) => sum + (acc.value || 0), 0),
+      chequeOutflow,
+      pendingChequesValue,
+      pendingChequesCount,
     };
   };
 
@@ -475,6 +540,10 @@ export const FinanceProvider = ({ children }) => {
     addLoan,
     updateLoan,
     deleteLoan,
+    // Cheques
+    addCheque,
+    updateCheque,
+    deleteCheque,
   };
 
   return (

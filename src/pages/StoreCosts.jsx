@@ -55,11 +55,6 @@ export default function StoreCosts() {
     }
   };
 
-  const totalByType = data.storeCosts.reduce((acc, cost) => {
-    acc[cost.costType] = (acc[cost.costType] || 0) + cost.value;
-    return acc;
-  }, {});
-
   return (
     <div>
       <div className="flex justify-between items-center mb-6">

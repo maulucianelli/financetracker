@@ -9,23 +9,44 @@ import {
   BarChart3,
   Menu,
   X,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Receipt
 } from 'lucide-react';
 import { useState } from 'react';
 
-const menuItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard', section: 'main' },
-  { path: '/dre', icon: BarChart3, label: 'DRE (Lucros)', section: 'reports' },
-  { path: '/cash-flow', icon: FileText, label: 'Fluxo de Caixa', section: 'reports' },
-  { path: '/revenues', icon: Store, label: 'Receitas', section: 'management' },
-  { path: '/accounts-payable', icon: FileText, label: 'Contas a Pagar', section: 'management' },
-  { path: '/loans', icon: CreditCard, label: 'Empréstimos', section: 'management' },
-  { path: '/settings', icon: SettingsIcon, label: 'Configurações', section: 'settings' },
-  // Legacy - ocultado mas mantém rotas funcionando
-  // { path: '/monthly-resume', icon: Calendar, label: 'Resumo Mensal' },
-  // { path: '/transport-costs', icon: Truck, label: 'Custos Transportadora' },
-  // { path: '/store-costs', icon: Store, label: 'Custos Loja' },
-  // { path: '/consolidated', icon: BarChart3, label: 'Relatório Consolidado' },
+const menuSections = [
+  {
+    title: 'Análises',
+    items: [
+      { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+      { path: '/dre', icon: BarChart3, label: 'DRE (Lucros)' },
+      { path: '/cash-flow', icon: FileText, label: 'Fluxo de Caixa' },
+    ],
+  },
+  {
+    title: 'Gestão Operacional',
+    items: [
+      { path: '/revenues', icon: Store, label: 'Receitas' },
+      { path: '/accounts-payable', icon: FileText, label: 'Contas a Pagar' },
+      { path: '/cheques', icon: Receipt, label: 'Cheques' },
+      { path: '/loans', icon: CreditCard, label: 'Empréstimos' },
+    ],
+  },
+  {
+    title: 'Configurações',
+    items: [
+      { path: '/settings', icon: SettingsIcon, label: 'Configurações' },
+    ],
+  },
+  {
+    title: 'Histórico (Legado)',
+    items: [
+      { path: '/monthly-resume', icon: Calendar, label: 'Resumo Mensal' },
+      { path: '/transport-costs', icon: Truck, label: 'Custos Transportadora' },
+      { path: '/store-costs', icon: Store, label: 'Custos Loja' },
+      { path: '/consolidated', icon: BarChart3, label: 'Relatório Consolidado' },
+    ],
+  },
 ];
 
 export default function Layout({ children }) {
@@ -41,25 +62,34 @@ export default function Layout({ children }) {
             <div className="flex flex-shrink-0 items-center px-4">
               <h1 className="text-xl font-bold text-white">FinanceTrack</h1>
             </div>
-            <nav className="mt-8 flex-1 space-y-1 px-2">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                      isActive
-                        ? 'bg-gray-800 text-white'
-                        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    }`}
-                  >
-                    <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
-                    {item.label}
-                  </Link>
-                );
-              })}
+            <nav className="mt-8 flex-1 space-y-6 px-2">
+              {menuSections.map((section) => (
+                <div key={section.title}>
+                  <p className="px-2 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    {section.title}
+                  </p>
+                  <div className="space-y-1">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
+                            isActive
+                              ? 'bg-gray-800 text-white'
+                              : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                          }`}
+                        >
+                          <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </nav>
           </div>
         </div>
@@ -83,26 +113,35 @@ export default function Layout({ children }) {
                 <div className="flex flex-shrink-0 items-center px-4">
                   <h1 className="text-xl font-bold text-white">FinanceTrack</h1>
                 </div>
-                <nav className="mt-8 flex-1 space-y-1 px-2">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location.pathname === item.path;
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        onClick={() => setSidebarOpen(false)}
-                        className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                          isActive
-                            ? 'bg-gray-800 text-white'
-                            : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                        }`}
-                      >
-                        <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
-                        {item.label}
-                      </Link>
-                    );
-                  })}
+                <nav className="mt-8 flex-1 space-y-6 px-2">
+                  {menuSections.map((section) => (
+                    <div key={section.title}>
+                      <p className="px-2 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                        {section.title}
+                      </p>
+                      <div className="space-y-1">
+                        {section.items.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = location.pathname === item.path;
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              onClick={() => setSidebarOpen(false)}
+                              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
+                                isActive
+                                  ? 'bg-gray-800 text-white'
+                                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                              }`}
+                            >
+                              <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
+                              {item.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </nav>
               </div>
             </div>

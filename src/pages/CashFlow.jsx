@@ -1,12 +1,27 @@
 import { useState } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
-import { TrendingUp, TrendingDown, Info, DollarSign, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info, DollarSign, AlertTriangle, Banknote } from 'lucide-react';
 
 export default function CashFlow() {
-  const { calculateCashFlow, data } = useFinance();
+  const { calculateCashFlow } = useFinance();
   const [period, setPeriod] = useState({ start: '', end: '' });
 
-  const cashFlow = calculateCashFlow(period.start, period.end);
+  const cashFlow = calculateCashFlow(period.start, period.end) || {
+    cashInflows: 0,
+    cashOutflows: 0,
+    netCashFlow: 0,
+    loanPayments: 0,
+    pendingPayables: 0,
+    pendingReceivables: 0,
+    chequeOutflow: 0,
+    pendingChequesValue: 0,
+    pendingChequesCount: 0,
+  };
+  const payablesOutflow = Math.max(
+    cashFlow.cashOutflows - cashFlow.loanPayments - cashFlow.chequeOutflow,
+    0
+  );
+  const hasPendingCheques = cashFlow.pendingChequesValue > 0;
 
   return (
     <div>
@@ -59,7 +74,7 @@ export default function CashFlow() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500 flex items-center">
             <TrendingUp className="h-4 w-4 mr-1 text-green-600" />
@@ -103,6 +118,18 @@ export default function CashFlow() {
           </p>
           <p className="text-xs text-gray-500 mt-1">Obrigações futuras</p>
         </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500 flex items-center">
+            <Banknote className="h-4 w-4 mr-1 text-purple-600" />
+            Cheques Pendentes
+          </h3>
+          <p className="text-2xl font-bold text-purple-600">
+            R$ {cashFlow.pendingChequesValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {cashFlow.pendingChequesCount} cheque(s) aguardando compensação
+          </p>
+        </div>
       </div>
 
       {/* Cash Flow Breakdown */}
@@ -140,7 +167,13 @@ export default function CashFlow() {
               <div className="flex justify-between items-center pb-2 border-b">
                 <span className="text-sm font-medium text-gray-700">Pagamento de Contas</span>
                 <span className="text-lg font-bold text-red-600">
-                  R$ {(cashFlow.cashOutflows - cashFlow.loanPayments).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  R$ {payablesOutflow.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="text-sm font-medium text-gray-700">Cheques Compensados</span>
+                <span className="text-lg font-bold text-red-600">
+                  R$ {cashFlow.chequeOutflow.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between items-center pb-2 border-b">
@@ -182,6 +215,10 @@ export default function CashFlow() {
               - R$ {cashFlow.cashOutflows.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
+          <div className="flex justify-between items-center text-sm text-gray-600">
+            <span>Inclui cheques compensados</span>
+            <span>R$ {cashFlow.chequeOutflow.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
           <div className="flex justify-between items-center py-3 bg-gray-50 px-4 rounded">
             <span className="text-gray-900 font-bold text-lg">Saldo Líquido do Período</span>
             <span className={`text-2xl font-bold ${cashFlow.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -215,6 +252,21 @@ export default function CashFlow() {
                 <strong>Alerta:</strong> Suas obrigações futuras (R$ {cashFlow.pendingPayables.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
                 são maiores que os recebimentos esperados (R$ {cashFlow.pendingReceivables.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).
                 Planeje seu caixa com antecedência.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasPendingCheques && (
+        <div className="mt-6 bg-purple-50 border-l-4 border-purple-400 p-4">
+          <div className="flex">
+            <Banknote className="h-5 w-5 text-purple-400" />
+            <div className="ml-3">
+              <p className="text-sm text-purple-700">
+                <strong>Cheques pendentes:</strong> {cashFlow.pendingChequesCount} cheque(s) aguardando compensação no valor de{' '}
+                <strong>R$ {cashFlow.pendingChequesValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>.
+                Garanta saldo suficiente na data de desconto.
               </p>
             </div>
           </div>

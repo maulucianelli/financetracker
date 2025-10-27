@@ -7,6 +7,11 @@ export default function IncomeStatement() {
   const [period, setPeriod] = useState({ start: '', end: '' });
 
   const dre = calculateDRE(period.start, period.end);
+  const chequeExpenses = dre?.chequeExpenses || 0;
+  const totalOpWithoutCheques = Math.max(
+    (dre?.totalOpExpensesWithoutCheques ?? ((dre?.totalOpExpenses || 0) - chequeExpenses)),
+    0
+  );
 
   const MetricRow = ({ label, value, bold = false, indent = 0, color = 'text-gray-900', isSubtotal = false }) => (
     <tr className={`${isSubtotal ? 'border-t-2 border-gray-300' : ''}`}>
@@ -81,7 +86,7 @@ export default function IncomeStatement() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Receita Total</h3>
           <p className="text-2xl font-bold text-green-600">
@@ -108,6 +113,13 @@ export default function IncomeStatement() {
             R$ {dre.totalNetProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
           <p className="text-xs text-gray-500 mt-1">Margem: {dre.netMargin.toFixed(1)}%</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500">Cheques (Competência)</h3>
+          <p className="text-2xl font-bold text-purple-600">
+            R$ {chequeExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">Incluídos nas despesas fixas</p>
         </div>
       </div>
 
@@ -140,7 +152,8 @@ export default function IncomeStatement() {
             />
 
             <SectionHeader title="(-) Despesas Operacionais / Fixas" />
-            <MetricRow label="Despesas Operacionais" value={dre.totalOpExpenses} indent={1} color="text-red-600" />
+            <MetricRow label="Despesas Operacionais" value={totalOpWithoutCheques} indent={1} color="text-red-600" />
+            <MetricRow label="Cheques Emitidos" value={chequeExpenses} indent={2} color="text-red-600" />
 
             <MetricRow
               label="= LUCRO OPERACIONAL (EBITDA)"

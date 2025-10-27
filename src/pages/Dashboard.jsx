@@ -14,8 +14,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from 'lucide-react';
-import { format } from 'date-fns';
+import { TrendingUp, TrendingDown, DollarSign, AlertCircle, Banknote } from 'lucide-react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -36,7 +35,9 @@ export default function Dashboard() {
     transportRevenue: 0,
     totalDirectCosts: 0,
     totalOpExpenses: 0,
+    totalOpExpensesWithoutCheques: 0,
     totalInterest: 0,
+    chequeExpenses: 0,
   };
 
   const cashFlow = calculateCashFlow() || {
@@ -44,6 +45,8 @@ export default function Dashboard() {
     pendingReceivables: 0,
     cashInflows: 0,
     cashOutflows: 0,
+    pendingChequesValue: 0,
+    chequeOutflow: 0,
   };
 
   const unpaidAccounts = (data.accountsPayable || []).filter(acc => !acc.paid).length;
@@ -52,6 +55,10 @@ export default function Dashboard() {
     .reduce((sum, acc) => sum + (acc.value || 0), 0);
 
   const totalLoans = (data.loans || []).reduce((sum, loan) => sum + (loan.balance || 0), 0);
+  const operationalWithoutCheques = Math.max(
+    (dre.totalOpExpensesWithoutCheques ?? (dre.totalOpExpenses - dre.chequeExpenses)),
+    0
+  );
 
   // Prepare chart data
   const profitData = [
@@ -61,44 +68,48 @@ export default function Dashboard() {
 
   const costsDistribution = [
     { name: 'Custos Diretos', value: dre.totalDirectCosts },
-    { name: 'Despesas Operacionais', value: dre.totalOpExpenses },
+    { name: 'Despesas Operacionais', value: operationalWithoutCheques },
+    { name: 'Cheques', value: dre.chequeExpenses },
     { name: 'Despesas Financeiras', value: dre.totalInterest },
-  ];
+  ].filter(item => item.value > 0);
 
-  const MetricCard = ({ title, value, icon: Icon, trend, colorClass }) => (
-    <div className="bg-white overflow-hidden shadow rounded-lg">
-      <div className="p-5">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <Icon className={`h-6 w-6 ${colorClass}`} />
-          </div>
-          <div className="ml-5 w-0 flex-1">
-            <dl>
-              <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-              <dd className="flex items-baseline">
-                <div className="text-2xl font-semibold text-gray-900">
-                  R$ {value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </div>
-                {trend !== undefined && (
-                  <div className={`ml-2 flex items-baseline text-sm font-semibold ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {trend >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
-                    {Math.abs(trend)}%
+  const MetricCard = ({ title, value, icon, trend, colorClass }) => {
+    const Icon = icon;
+    return (
+      <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="p-5">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <Icon className={`h-6 w-6 ${colorClass}`} />
+            </div>
+            <div className="ml-5 w-0 flex-1">
+              <dl>
+                <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
+                <dd className="flex items-baseline">
+                  <div className="text-2xl font-semibold text-gray-900">
+                    R$ {value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </div>
-                )}
-              </dd>
-            </dl>
+                  {trend !== undefined && (
+                    <div className={`ml-2 flex items-baseline text-sm font-semibold ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {trend >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
+                      {Math.abs(trend)}%
+                    </div>
+                  )}
+                </dd>
+              </dl>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div>
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Dashboard Financeiro</h1>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5 mb-8">
         <MetricCard
           title="Receita Total (DRE)"
           value={dre.totalRevenue}
@@ -122,6 +133,12 @@ export default function Dashboard() {
           value={totalUnpaid}
           icon={AlertCircle}
           colorClass="text-orange-600"
+        />
+        <MetricCard
+          title="Cheques Pendentes"
+          value={cashFlow.pendingChequesValue}
+          icon={Banknote}
+          colorClass={cashFlow.pendingChequesValue > 0 ? 'text-purple-600' : 'text-gray-400'}
         />
       </div>
 

@@ -8,6 +8,7 @@ import Revenues from './pages/Revenues';
 import AccountsPayable from './pages/AccountsPayable';
 import Loans from './pages/Loans';
 import Settings from './pages/Settings';
+import Cheques from './pages/Cheques';
 // Legacy routes
 import MonthlyResume from './pages/MonthlyResume';
 import TransportCosts from './pages/TransportCosts';
@@ -26,6 +27,7 @@ function App() {
             <Route path="/revenues" element={<Revenues />} />
             <Route path="/accounts-payable" element={<AccountsPayable />} />
             <Route path="/loans" element={<Loans />} />
+            <Route path="/cheques" element={<Cheques />} />
             <Route path="/settings" element={<Settings />} />
             {/* Legacy routes - mantém compatibilidade */}
             <Route path="/monthly-resume" element={<MonthlyResume />} />
