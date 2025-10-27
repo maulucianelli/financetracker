@@ -38,6 +38,13 @@ const menuSections = [
       { path: '/settings', icon: SettingsIcon, label: 'Configurações' },
     ],
   },
+  {
+    title: 'Relatórios',
+    items: [
+      { path: '/monthly-resume', icon: Calendar, label: 'Resumo Mensal' },
+      { path: '/consolidated', icon: BarChart3, label: 'Relatório Consolidado' },
+    ],
+  },
 ];
 
 export default function Layout({ children }) {

@@ -75,12 +75,17 @@ export default function Dashboard() {
     { name: 'Transportadora', lucro: dre.transportNetProfit, receita: dre.transportRevenue },
   ];
 
-  const costsDistribution = [
-    { name: 'Custos Diretos', value: dre.totalDirectCosts },
-    { name: 'Despesas Operacionais', value: operationalWithoutCheques },
-    { name: 'Cheques', value: dre.chequeExpenses },
-    { name: 'Despesas Financeiras', value: dre.totalInterest },
-  ].filter(item => item.value > 0);
+  const costsDistributionRaw = [
+    { name: 'Custos Diretos', value: Math.max(dre.totalDirectCosts, 0) },
+    { name: 'Despesas Operacionais', value: Math.max(operationalWithoutCheques, 0) },
+    { name: 'Cheques', value: Math.max(dre.chequeExpenses, 0) },
+    { name: 'Despesas Financeiras', value: Math.max(dre.totalInterest, 0) },
+  ];
+  const costsTotal = costsDistributionRaw.reduce((sum, item) => sum + item.value, 0);
+  const hasCostData = costsTotal > 0;
+  const costsDistribution = hasCostData
+    ? costsDistributionRaw.filter(item => item.value > 0)
+    : costsDistributionRaw;
 
   const MetricCard = ({ title, value, icon, trend, colorClass }) => {
     const Icon = icon;
@@ -172,25 +177,34 @@ export default function Dashboard() {
         {/* Costs Distribution */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Distribuição de Custos</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={costsDistribution}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {costsDistribution.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />
-            </PieChart>
-          </ResponsiveContainer>
+          {hasCostData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={costsDistribution}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value }) => {
+                    const percent = costsTotal > 0 ? (value / costsTotal) * 100 : 0;
+                    return `${name}: ${percent.toFixed(0)}%`;
+                  }}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {costsDistribution.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-64 items-center justify-center text-sm text-gray-500">
+              Nenhum custo registrado no período.
+            </div>
+          )}
         </div>
       </div>
 
