@@ -1,90 +1,147 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { useFinance } from '../contexts/FinanceContext';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
+
+const dateFromString = (value) => {
+  if (!value) return null;
+  try {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  } catch {
+    return null;
+  }
+};
+
+const monthKeyFromDate = (value) => {
+  const date = dateFromString(value);
+  if (!date) return null;
+  return format(date, 'yyyy-MM');
+};
+
+const buildMonthLabel = (key) => {
+  try {
+    const date = parseISO(`${key}-01`);
+    return format(date, "MMMM yyyy", { locale: ptBR });
+  } catch {
+    return key;
+  }
+};
+
+const periodBounds = (monthKey) => {
+  try {
+    const start = startOfMonth(parseISO(`${monthKey}-01`));
+    const end = endOfMonth(start);
+    return {
+      start: start.toISOString(),
+      end: end.toISOString(),
+      startDisplay: format(start, "dd/MM/yyyy"),
+      endDisplay: format(end, "dd/MM/yyyy"),
+    };
+  } catch {
+    return { start: null, end: null, startDisplay: '', endDisplay: '' };
+  }
+};
+
+const collectMonths = (data) => {
+  const monthSet = new Set();
+
+  const capture = (items, extractor) => {
+    (items || []).forEach((item) => {
+      const key = monthKeyFromDate(extractor(item));
+      if (key) monthSet.add(key);
+    });
+  };
+
+  capture(data.revenues, item => item.date);
+  capture(data.directCosts, item => item.date);
+  capture(data.operationalExpenses, item => item.date);
+  capture(data.cheques, item => item.issueDate || item.clearingDate);
+  capture(data.accountsPayable, item => item.date || item.dueDate);
+  capture(data.accountsReceivable, item => item.date || item.dueDate);
+  capture(data.monthlyResume, item => item.month ? `${item.month}-01` : null);
+
+  return Array.from(monthSet).sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+};
 
 export default function MonthlyResume() {
-  const { data, addMonthlyResume, updateMonthlyResume, deleteMonthlyResume } = useFinance();
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [formData, setFormData] = useState({
-    month: '',
-    storeRevenue: 0,
-    transportRevenue: 0,
-    fixedExpenses: 0,
-    variableExpenses: 0,
-    loanPayments: 0,
-  });
+  const { data, calculateDRE, calculateCashFlow } = useFinance();
+  const [selectedMonth, setSelectedMonth] = useState(null);
 
-  const resetForm = () => {
-    setFormData({
-      month: '',
-      storeRevenue: 0,
-      transportRevenue: 0,
-      fixedExpenses: 0,
-      variableExpenses: 0,
-      loanPayments: 0,
+  const monthlySummaries = useMemo(() => {
+    const months = collectMonths(data);
+    return months.map((monthKey) => {
+      const period = periodBounds(monthKey);
+      const dre = calculateDRE(period.start, period.end) || {};
+      const cashFlow = calculateCashFlow(period.start, period.end) || {};
+
+      const storeRevenue = dre.storeRevenue || 0;
+      const transportRevenue = dre.transportRevenue || 0;
+      const totalRevenue = dre.totalRevenue || 0;
+      const directCosts = dre.totalDirectCosts || 0;
+      const operationalExpenses = dre.totalOpExpenses || 0;
+      const financialExpenses = dre.totalInterest || 0;
+      const totalExpenses = directCosts + operationalExpenses + financialExpenses;
+      const netProfit = dre.totalNetProfit || 0;
+
+      return {
+        key: monthKey,
+        label: buildMonthLabel(monthKey),
+        period,
+        storeRevenue,
+        transportRevenue,
+        totalRevenue,
+        directCosts,
+        operationalExpenses,
+        financialExpenses,
+        totalExpenses,
+        netProfit,
+        grossMargin: dre.grossMargin || 0,
+        operatingMargin: dre.operatingMargin || 0,
+        netMargin: dre.netMargin || 0,
+        chequeExpenses: dre.chequeExpenses || 0,
+        loanPayments: cashFlow.loanPayments || 0,
+      };
     });
-    setEditingItem(null);
-  };
+  }, [data, calculateDRE, calculateCashFlow]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const totalEntries = Number(formData.storeRevenue) + Number(formData.transportRevenue);
-    const totalExits = Number(formData.fixedExpenses) + Number(formData.variableExpenses) + Number(formData.loanPayments);
-    const profit = totalEntries - totalExits;
+  const activeMonth = selectedMonth && monthlySummaries.find(month => month.key === selectedMonth);
 
-    const item = {
-      ...formData,
-      storeRevenue: Number(formData.storeRevenue),
-      transportRevenue: Number(formData.transportRevenue),
-      fixedExpenses: Number(formData.fixedExpenses),
-      variableExpenses: Number(formData.variableExpenses),
-      loanPayments: Number(formData.loanPayments),
-      totalEntries,
-      totalExits,
-      profit,
-    };
-
-    if (editingItem) {
-      updateMonthlyResume(editingItem.id, item);
-    } else {
-      addMonthlyResume(item);
-    }
-
-    setShowModal(false);
-    resetForm();
-  };
-
-  const handleEdit = (item) => {
-    setEditingItem(item);
-    setFormData({
-      month: item.month,
-      storeRevenue: item.storeRevenue,
-      transportRevenue: item.transportRevenue,
-      fixedExpenses: item.fixedExpenses,
-      variableExpenses: item.variableExpenses,
-      loanPayments: item.loanPayments,
-    });
-    setShowModal(true);
-  };
-
-  const handleDelete = (id) => {
-    if (confirm('Tem certeza que deseja excluir este registro?')) {
-      deleteMonthlyResume(id);
-    }
-  };
+  if (monthlySummaries.length === 0) {
+    return (
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">Resumo Financeiro Mensal</h1>
+        <div className="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+          Não há dados suficientes para gerar o resumo mensal. Cadastre receitas, custos ou despesas para ver os resultados automaticamente.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Resumo Financeiro Mensal</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700"
-        >
-          <Plus className="h-5 w-5 mr-2" />
-          Adicionar Registro
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Resumo Financeiro Mensal</h1>
+          <p className="text-gray-600 mt-1">
+            Valores calculados automaticamente a partir de receitas, custos, despesas e empréstimos registrados.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Escolher mês:</label>
+          <select
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={selectedMonth || ''}
+            onChange={(event) => setSelectedMonth(event.target.value || null)}
+          >
+            <option value="">Mais recente</option>
+            {monthlySummaries.map(month => (
+              <option key={month.key} value={month.key}>
+                {month.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -92,155 +149,126 @@ export default function MonthlyResume() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mês</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entradas Loja</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entradas Transp.</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Entradas</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Saídas</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lucro/Prejuízo</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receita Loja</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Receita Transportadora</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Receitas</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Despesas</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lucro Líquido</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {data.monthlyResume.map((item) => (
-              <tr key={item.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.month}</td>
+            {monthlySummaries.map((month) => (
+              <tr
+                key={month.key}
+                className={selectedMonth === month.key ? 'bg-blue-50/40' : ''}
+                onClick={() => setSelectedMonth(prev => (prev === month.key ? null : month.key))}
+              >
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{month.label}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  R$ {item.storeRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  R$ {item.transportRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
-                  R$ {item.totalEntries.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  {month.period.startDisplay} — {month.period.endDisplay}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  R$ {item.totalExits.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </td>
-                <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${item.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  R$ {item.profit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  R$ {month.storeRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <button onClick={() => handleEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  R$ {month.transportRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                  R$ {month.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  R$ {month.totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </td>
+                <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${month.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  R$ {month.netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {data.monthlyResume.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            Nenhum registro encontrado. Clique em "Adicionar Registro" para começar.
-          </div>
-        )}
       </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">
-                {editingItem ? 'Editar Registro' : 'Novo Registro'}
-              </h2>
-              <button onClick={() => { setShowModal(false); resetForm(); }}>
-                <X className="h-6 w-6 text-gray-500" />
-              </button>
+      {activeMonth && (
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Resumo Detalhado — {activeMonth.label}</h2>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Receita Loja</span>
+                <span className="font-semibold">
+                  R$ {activeMonth.storeRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Receita Transportadora</span>
+                <span className="font-semibold">
+                  R$ {activeMonth.transportRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-3">
+                <span className="text-gray-600">Receita Total</span>
+                <span className="font-semibold">
+                  R$ {activeMonth.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between pt-3">
+                <span className="text-gray-600">Custos Diretos (Variáveis)</span>
+                <span>
+                  R$ {activeMonth.directCosts.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Despesas Operacionais (Fixas)</span>
+                <span>
+                  R$ {activeMonth.operationalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Despesas Financeiras (Juros)</span>
+                <span>
+                  R$ {activeMonth.financialExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-3 text-base">
+                <span className="text-gray-900 font-semibold">Lucro Líquido</span>
+                <span className={activeMonth.netProfit >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                  R$ {activeMonth.netProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
-
-            <form onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mês</label>
-                  <input
-                    type="month"
-                    required
-                    value={formData.month}
-                    onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Entradas Loja (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.storeRevenue}
-                    onChange={(e) => setFormData({ ...formData, storeRevenue: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Entradas Transportadora (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.transportRevenue}
-                    onChange={(e) => setFormData({ ...formData, transportRevenue: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Despesas Fixas (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.fixedExpenses}
-                    onChange={(e) => setFormData({ ...formData, fixedExpenses: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Despesas Variáveis (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.variableExpenses}
-                    onChange={(e) => setFormData({ ...formData, variableExpenses: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pagamento Empréstimos (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.loanPayments}
-                    onChange={(e) => setFormData({ ...formData, loanPayments: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+          </div>
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Indicadores</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div className="p-3 rounded border border-gray-200">
+                <p className="text-gray-600">Margem Bruta</p>
+                <p className="text-xl font-semibold text-blue-600">{activeMonth.grossMargin.toFixed(1)}%</p>
               </div>
-
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => { setShowModal(false); resetForm(); }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  {editingItem ? 'Atualizar' : 'Adicionar'}
-                </button>
+              <div className="p-3 rounded border border-gray-200">
+                <p className="text-gray-600">Margem Operacional</p>
+                <p className="text-xl font-semibold text-blue-600">{activeMonth.operatingMargin.toFixed(1)}%</p>
               </div>
-            </form>
+              <div className="p-3 rounded border border-gray-200">
+                <p className="text-gray-600">Margem Líquida</p>
+                <p className="text-xl font-semibold text-blue-600">{activeMonth.netMargin.toFixed(1)}%</p>
+              </div>
+              <div className="p-3 rounded border border-gray-200">
+                <p className="text-gray-600">Cheques (Competência)</p>
+                <p className="text-xl font-semibold text-purple-600">
+                  R$ {activeMonth.chequeExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="p-3 rounded border border-gray-200 sm:col-span-2">
+                <p className="text-gray-600">Pagamento Mensal de Empréstimos (aprox.)</p>
+                <p className="text-xl font-semibold text-orange-600">
+                  R$ {activeMonth.loanPayments.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Estimado a partir do cadastro de empréstimos.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

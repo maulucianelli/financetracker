@@ -771,59 +771,138 @@ export const FinanceProvider = ({ children }) => {
   };
 
   const calculateCashFlow = (startDate = null, endDate = null) => {
-    // Filtrar contas pagas no período
-    const paidPayables = (data.accountsPayable || [])
-      .filter(acc => acc.paid)
-      .filter(acc => filterByPeriod([acc], startDate, endDate).length > 0);
+    const allocationSetting = data.settings?.costAllocation || { store: 50, transport: 50 };
+    const allocationRatio = {
+      store: (allocationSetting.store ?? 50) / 100,
+      transport: (allocationSetting.transport ?? 50) / 100,
+    };
 
-    const receivedReceivables = (data.accountsReceivable || [])
-      .filter(acc => acc.received)
-      .filter(acc => filterByPeriod([acc], startDate, endDate).length > 0);
-
-    const loanPayments = (data.loans || []).reduce((sum, loan) => {
-      return sum + (loan.installmentValue || 0);
-    }, 0);
-
-    const clearedCheques = (data.cheques || [])
-      .filter(cheque => cheque.status === 'compensado');
-    const clearedChequesInPeriod = filterByPeriod(
-      clearedCheques.map(cheque => ({
+    const revenues = filterByPeriod(data.revenues || [], startDate, endDate);
+    const receivables = filterByPeriod(data.accountsReceivable || [], startDate, endDate);
+    const payables = filterByPeriod(data.accountsPayable || [], startDate, endDate);
+    const chequesInPeriod = filterByPeriod(
+      (data.cheques || []).map(cheque => ({
         ...cheque,
         date: cheque.clearingDate || cheque.issueDate || null
       })),
       startDate,
       endDate
     );
-    const chequeOutflow = clearedChequesInPeriod.reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
-    const pendingChequesValue = (data.cheques || [])
+    const loans = data.loans || [];
+
+    const baseSummary = () => ({
+      cashInflows: 0,
+      revenueInflows: 0,
+      receivableInflows: 0,
+      cashOutflows: 0,
+      payableOutflows: 0,
+      loanPayments: 0,
+      chequeOutflow: 0,
+      netCashFlow: 0,
+      pendingPayables: 0,
+      pendingReceivables: 0,
+      pendingChequesValue: 0,
+      pendingChequesCount: 0,
+    });
+
+    const summaries = {
+      all: baseSummary(),
+      store: baseSummary(),
+      transport: baseSummary(),
+    };
+
+    const allocateValue = (origin, value) => {
+      const normalized = normalizeOrigin(origin);
+      if (normalized === 'transport') {
+        return { store: 0, transport: value };
+      }
+      if (normalized === 'store') {
+        return { store: value, transport: 0 };
+      }
+      return {
+        store: value * allocationRatio.store,
+        transport: value * allocationRatio.transport,
+      };
+    };
+
+    const pushValue = (key, origin, value) => {
+      const { store, transport } = allocateValue(origin, value);
+      summaries.store[key] += store;
+      summaries.transport[key] += transport;
+      summaries.all[key] += store + transport;
+      return { store, transport };
+    };
+
+    // Receitas imediatas
+    revenues.forEach((revenue) => {
+      const value = Number(revenue.value) || 0;
+      pushValue('cashInflows', revenue.origin, value);
+      pushValue('revenueInflows', revenue.origin, value);
+    });
+
+    // Contas a receber
+    receivables.forEach((receivable) => {
+      const value = Number(receivable.value) || 0;
+      if (receivable.received) {
+        pushValue('cashInflows', receivable.origin, value);
+        pushValue('receivableInflows', receivable.origin, value);
+      } else {
+        pushValue('pendingReceivables', receivable.origin, value);
+      }
+    });
+
+    // Contas a pagar
+    payables.forEach((payable) => {
+      const value = Number(payable.value) || 0;
+      if (payable.paid) {
+        pushValue('cashOutflows', payable.origin, value);
+        pushValue('payableOutflows', payable.origin, value);
+      } else {
+        pushValue('pendingPayables', payable.origin, value);
+      }
+    });
+
+    // Empréstimos (parcelas)
+    loans.forEach((loan) => {
+      const installmentValue = Number(loan.installmentValue) || 0;
+      if (installmentValue > 0) {
+        pushValue('cashOutflows', loan.origin, installmentValue);
+        pushValue('loanPayments', loan.origin, installmentValue);
+      }
+    });
+
+    // Cheques compensados (saída efetiva)
+    chequesInPeriod
+      .filter(cheque => cheque.status === 'compensado')
+      .forEach((cheque) => {
+        const value = Number(cheque.value) || 0;
+        pushValue('cashOutflows', cheque.origin, value);
+        pushValue('chequeOutflow', cheque.origin, value);
+      });
+
+    // Cheques pendentes
+    (data.cheques || [])
       .filter(cheque => cheque.status !== 'compensado')
-      .reduce((sum, cheque) => sum + (Number(cheque.value) || 0), 0);
-    const pendingChequesCount = (data.cheques || [])
-      .filter(cheque => cheque.status !== 'compensado').length;
+      .forEach((cheque) => {
+        const value = Number(cheque.value) || 0;
+        const { store, transport } = allocateValue(cheque.origin, value);
+        if (store > 0) summaries.store.pendingChequesValue += store;
+        if (transport > 0) summaries.transport.pendingChequesValue += transport;
+        summaries.all.pendingChequesValue += value;
 
-    // Entradas de Caixa
-    const cashInflows = receivedReceivables.reduce((sum, acc) => sum + (acc.value || 0), 0);
+        summaries.all.pendingChequesCount += 1;
+        if (store > 0) summaries.store.pendingChequesCount += 1;
+        if (transport > 0) summaries.transport.pendingChequesCount += 1;
+      });
 
-    // Saídas de Caixa
-    const cashOutflows = paidPayables.reduce((sum, acc) => sum + (acc.value || 0), 0) + loanPayments + chequeOutflow;
-
-    // Saldo de Caixa
-    const netCashFlow = cashInflows - cashOutflows;
+    ['all', 'store', 'transport'].forEach((key) => {
+      const summary = summaries[key];
+      summary.netCashFlow = summary.cashInflows - summary.cashOutflows;
+    });
 
     return {
-      cashInflows,
-      cashOutflows,
-      netCashFlow,
-      loanPayments,
-      pendingPayables: (data.accountsPayable || [])
-        .filter(acc => !acc.paid)
-        .reduce((sum, acc) => sum + (acc.value || 0), 0),
-      pendingReceivables: (data.accountsReceivable || [])
-        .filter(acc => !acc.received)
-        .reduce((sum, acc) => sum + (acc.value || 0), 0),
-      chequeOutflow,
-      pendingChequesValue,
-      pendingChequesCount,
+      ...summaries.all,
+      breakdown: summaries,
     };
   };
 

@@ -33,16 +33,16 @@ const menuSections = [
     ],
   },
   {
-    title: 'Configurações',
-    items: [
-      { path: '/settings', icon: SettingsIcon, label: 'Configurações' },
-    ],
-  },
-  {
     title: 'Relatórios',
     items: [
       { path: '/monthly-resume', icon: Calendar, label: 'Resumo Mensal' },
       { path: '/consolidated', icon: BarChart3, label: 'Relatório Consolidado' },
+    ],
+  },
+  {
+    title: 'Configurações',
+    items: [
+      { path: '/settings', icon: SettingsIcon, label: 'Configurações' },
     ],
   },
 ];
