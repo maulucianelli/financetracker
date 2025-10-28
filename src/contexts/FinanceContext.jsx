@@ -46,6 +46,11 @@ const initialData = {
   storeCosts: [],
 };
 
+const supportsFSAccess = () =>
+  typeof window !== 'undefined'
+  && typeof window.showSaveFilePicker === 'function'
+  && typeof window.showOpenFilePicker === 'function';
+
 export const FinanceProvider = ({ children }) => {
   const storageSupported = typeof navigator !== 'undefined' && !!navigator.storage?.persist;
   const normalizeOrigin = (origin) => {
@@ -134,8 +139,19 @@ export const FinanceProvider = ({ children }) => {
     error: null,
   });
 
+  const [fileHandle, setFileHandle] = useState(null);
+  const [fileStatus, setFileStatus] = useState({
+    supported: supportsFSAccess(),
+    choosing: false,
+    saving: false,
+    error: null,
+    fileName: null,
+    lastSavedAt: null,
+    lastLoadedAt: null,
+  });
+
   const [data, setData] = useState(() => {
-    const saved = localStorage.getItem('financeData');
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('financeData') : null;
     if (saved) {
       const parsedData = JSON.parse(saved);
       // Garantir que os novos campos existem
@@ -155,8 +171,28 @@ export const FinanceProvider = ({ children }) => {
   });
 
   useEffect(() => {
-    localStorage.setItem('financeData', JSON.stringify(data));
-  }, [data]);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('financeData', JSON.stringify(data));
+    }
+    if (fileHandle) {
+      (async () => {
+        try {
+          setFileStatus(prev => ({ ...prev, saving: true, error: null }));
+          const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
+          if (permission === 'granted') {
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(data, null, 2));
+            await writable.close();
+            setFileStatus(prev => ({ ...prev, saving: false, lastSavedAt: new Date().toISOString() }));
+          } else {
+            setFileStatus(prev => ({ ...prev, saving: false, error: new Error('Permissão negada para gravar no arquivo selecionado.') }));
+          }
+        } catch (error) {
+          setFileStatus(prev => ({ ...prev, saving: false, error }));
+        }
+      })();
+    }
+  }, [data, fileHandle]);
 
   useEffect(() => {
     if (!storageSupported) {
@@ -204,6 +240,121 @@ export const FinanceProvider = ({ children }) => {
     } catch (error) {
       setPersistenceState(prev => ({ ...prev, checking: false, error }));
       return false;
+    }
+  };
+
+  useEffect(() => {
+    if (!supportsFSAccess() || typeof localStorage === 'undefined') {
+      return;
+    }
+    const savedMeta = localStorage.getItem('financeDataFile');
+    if (savedMeta) {
+      try {
+        const descriptor = JSON.parse(savedMeta);
+        setFileStatus(prev => ({
+          ...prev,
+          fileName: descriptor?.file || prev.fileName,
+        }));
+      } catch {
+        // ignore malformed
+      }
+    }
+  }, []);
+
+  const loadFromHandle = async (handle) => {
+    try {
+      const file = await handle.getFile();
+      const text = await file.text();
+      setFileStatus(prev => ({
+        ...prev,
+        lastLoadedAt: new Date().toISOString(),
+        fileName: handle.name,
+        error: null,
+      }));
+      return JSON.parse(text);
+    } catch (error) {
+      setFileStatus(prev => ({ ...prev, error }));
+      return null;
+    }
+  };
+
+  const selectDataFile = async () => {
+    if (!supportsFSAccess()) {
+      setFileStatus(prev => ({ ...prev, error: new Error('File System Access API não suportada neste navegador.') }));
+      return null;
+    }
+    try {
+      setFileStatus(prev => ({ ...prev, choosing: true, error: null }));
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{
+          description: 'Arquivo de dados FinanceTrack',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      const permission = await handle.requestPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        setFileStatus(prev => ({ ...prev, choosing: false, error: new Error('Permissão negada para acessar arquivo selecionado.') }));
+        return null;
+      }
+      const loaded = await loadFromHandle(handle);
+      if (loaded) {
+        setData(prev => ({ ...prev, ...loaded }));
+      }
+      setFileHandle(handle);
+      setFileStatus(prev => ({
+        ...prev,
+        choosing: false,
+        fileName: handle.name,
+        lastLoadedAt: new Date().toISOString(),
+      }));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('financeDataFile', JSON.stringify({ file: handle.name }));
+      }
+      return handle;
+    } catch (error) {
+      setFileStatus(prev => ({ ...prev, choosing: false, error }));
+      return null;
+    }
+  };
+
+  const createDataFile = async () => {
+    if (!supportsFSAccess()) {
+      setFileStatus(prev => ({ ...prev, error: new Error('File System Access API não suportada neste navegador.') }));
+      return null;
+    }
+    try {
+      setFileStatus(prev => ({ ...prev, choosing: true, error: null }));
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'finance-data.json',
+        types: [{
+          description: 'Arquivo de dados FinanceTrack',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      const permission = await handle.requestPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        setFileStatus(prev => ({ ...prev, choosing: false, error: new Error('Permissão negada para criar arquivo.') }));
+        return null;
+      }
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(data, null, 2));
+      await writable.close();
+      setFileHandle(handle);
+      setFileStatus(prev => ({
+        ...prev,
+        choosing: false,
+        fileName: handle.name,
+        lastSavedAt: new Date().toISOString(),
+        lastLoadedAt: new Date().toISOString(),
+      }));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('financeDataFile', JSON.stringify({ file: handle.name }));
+      }
+      return handle;
+    } catch (error) {
+      setFileStatus(prev => ({ ...prev, choosing: false, error }));
+      return null;
     }
   };
 
@@ -725,6 +876,11 @@ export const FinanceProvider = ({ children }) => {
     addCheque,
     updateCheque,
     deleteCheque,
+    // File persistence
+    fileHandle,
+    fileStatus,
+    selectDataFile,
+    createDataFile,
     // Storage
     storagePersistence: persistenceState,
     requestStoragePersistence: requestPersistence,

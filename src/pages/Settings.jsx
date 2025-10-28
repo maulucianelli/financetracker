@@ -1,9 +1,17 @@
 import { useState } from 'react';
 import { useFinance } from '../contexts/FinanceContext';
-import { AlertTriangle, Download, Upload, Trash2, ShieldCheck, ShieldOff, Loader2 } from 'lucide-react';
+import { AlertTriangle, Download, Upload, Trash2, ShieldCheck, ShieldOff, Loader2, FilePlus, FilePen, HardDriveDownload } from 'lucide-react';
 
 export default function Settings() {
-  const { data, updateCostAllocation, storagePersistence, requestStoragePersistence } = useFinance();
+  const {
+    data,
+    updateCostAllocation,
+    storagePersistence,
+    requestStoragePersistence,
+    fileStatus,
+    selectDataFile,
+    createDataFile,
+  } = useFinance();
   const [allocation, setAllocation] = useState(data.settings?.costAllocation || { store: 50, transport: 50 });
   const persistenceStatus = storagePersistence || { supported: false, persisted: false, checking: false, error: null };
 
@@ -140,6 +148,65 @@ export default function Settings() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Gerenciamento de Dados</h2>
 
         <div className="space-y-4">
+          {/* File System Access */}
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="flex items-start justify-between">
+              <div className="pr-4">
+                <h3 className="font-medium text-gray-900">Arquivo no Sistema</h3>
+                <p className="text-sm text-gray-600">
+                  Salve os dados diretamente em um arquivo local para maior controle.
+                </p>
+                <div className="mt-3 space-y-1 text-xs text-gray-500">
+                  <p>
+                    <strong>Suporte:</strong> {fileStatus?.supported ? 'Disponível neste navegador' : 'Não suportado'}
+                  </p>
+                  {fileStatus?.fileName && (
+                    <p>
+                      <strong>Arquivo:</strong> {fileStatus.fileName}
+                    </p>
+                  )}
+                  {fileStatus?.lastSavedAt && (
+                    <p>
+                      <strong>Último salvamento:</strong> {new Date(fileStatus.lastSavedAt).toLocaleString()}
+                    </p>
+                  )}
+                  {fileStatus?.error && (
+                    <p className="text-red-600">
+                      Erro: {fileStatus.error.message || 'Não foi possível salvar no arquivo.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 min-w-[200px]">
+                <button
+                  onClick={createDataFile}
+                  disabled={!fileStatus?.supported || fileStatus?.choosing}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <FilePlus className="h-4 w-4 mr-2" />
+                  Criar novo arquivo
+                </button>
+                <button
+                  onClick={selectDataFile}
+                  disabled={!fileStatus?.supported || fileStatus?.choosing}
+                  className="bg-gray-900 text-white px-4 py-2 rounded-lg flex items-center justify-center hover:bg-gray-800 disabled:opacity-50"
+                >
+                  <FilePen className="h-4 w-4 mr-2" />
+                  Usar arquivo existente
+                </button>
+                {fileStatus?.fileName && (
+                  <button
+                    onClick={handleExportData}
+                    className="bg-white text-gray-700 px-4 py-2 border border-gray-300 rounded-lg flex items-center justify-center hover:bg-gray-50"
+                  >
+                    <HardDriveDownload className="h-4 w-4 mr-2" />
+                    Exportar cópia
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Persistence */}
           <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
             <div className="pr-4">
